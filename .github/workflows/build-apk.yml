@@ -1,0 +1,55 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # Ekstrak project kalau di-upload sebagai satu file .zip di root repo
+      - name: Extract project zip
+        shell: bash
+        run: |
+          shopt -s nullglob
+          zips=(*.zip)
+          if [ ${#zips[@]} -gt 1 ]; then
+            echo "::error::Ada lebih dari satu file zip di repo (${zips[*]}). Sisakan satu saja."
+            exit 1
+          fi
+          if [ ${#zips[@]} -eq 1 ]; then
+            unzip -oq "${zips[0]}"
+          fi
+          if [ ! -f app/build.gradle.kts ]; then
+            echo "::error::Project belum ada di repo. Upload zip project ke root repo."
+            exit 1
+          fi
+
+      # debug.keystore tidak ada di repo, jadi pakai debug keystore bawaan Android
+      - name: Fix debug signing
+        run: sed -i 's/debug { signingConfig = signingConfigs.getByName("debugConfig") }/debug { }/' app/build.gradle.kts
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # Android SDK sudah ada di runner, tinggal terima lisensi
+      - name: Accept Android licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.3.1
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --no-daemon --console=plain
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          
